@@ -49,6 +49,11 @@ class Model(object):
             self.saver = None
         elif backend_name == "jax":
             self.opt_state = None  # TODO: to be removed to opt module
+        
+        # For computation of dynamic weights
+        self.beta = 0.9
+        self.adaptive_constant_bcs_val = np.array(1.0)
+        self.adaptive_constant_bcs_tf = tf.placeholder(tf.float32, shape=self.adaptive_constant_bcs_val.shape)
 
     @utils.timing
     def compile(
@@ -128,13 +133,33 @@ class Model(object):
             self.saver = tf.train.Saver(max_to_keep=None)
 
         # Data losses
-        losses = self.data.losses(self.net.targets, self.net.outputs, loss_fn, self)
-        if not isinstance(losses, list):
-            losses = [losses]
+        losses_all = self.data.losses(self.net.targets, self.net.outputs, loss_fn, self)
+        if not isinstance(losses_all, list):
+            losses_all = [losses_all]
         # Regularization loss
         if self.net.regularizer is not None:
-            losses.append(tf.losses.get_regularization_loss())
-        losses = tf.convert_to_tensor(losses)
+            losses_all.append(tf.losses.get_regularization_loss())
+
+        # losses[-len(self.data.bcs):] *= self.adaptive_constant_bcs_tf
+        losses_all = tf.convert_to_tensor(losses_all)
+        
+        # Calculate the weighted losses
+        losses_eq = losses_all[:-len(self.data.bcs)]
+        losses_bcs = losses_all[-len(self.data.bcs):] * self.adaptive_constant_bcs_tf
+        grad_res = []
+        grad_bcs = []
+        weights = tf.trainable_variables()[::2]
+        for i in range(len(self.net.layer_size) - 1):
+            grad_res.append(tf.gradients(losses_eq, weights[i])[0])
+            grad_bcs.append(tf.gradients(losses_bcs, weights[i])[0])
+
+        adpative_constant_bcs_list = []
+        for i in range(len(self.net.layer_size) - 1):
+            adpative_constant_bcs_list.append(
+                tf.reduce_max(tf.abs(grad_res[i])) / tf.reduce_mean(tf.abs(grad_bcs[i])))
+        self.adaptive_constant_bcs = tf.reduce_max(tf.stack(adpative_constant_bcs_list))
+
+        losses = losses_eq + losses_bcs
         # Weighted losses
         if loss_weights is not None:
             losses *= loss_weights
@@ -338,6 +363,7 @@ class Model(object):
     def _outputs_losses(self, training, inputs, targets, auxiliary_vars):
         if backend_name == "tensorflow.compat.v1":
             feed_dict = self.net.feed_dict(training, inputs, targets, auxiliary_vars)
+            feed_dict.update({self.adaptive_constant_bcs_tf: self.adaptive_constant_bcs_val})
             return self.sess.run(self.outputs_losses, feed_dict=feed_dict)
         if backend_name == "tensorflow":
             outs = self.outputs_losses(training, inputs, targets, auxiliary_vars)
@@ -354,6 +380,7 @@ class Model(object):
     def _train_step(self, inputs, targets, auxiliary_vars):
         if backend_name == "tensorflow.compat.v1":
             feed_dict = self.net.feed_dict(True, inputs, targets, auxiliary_vars)
+            feed_dict.update({self.adaptive_constant_bcs_tf: self.adaptive_constant_bcs_val})
             self.sess.run(self.train_step, feed_dict=feed_dict)
         elif backend_name == "tensorflow":
             self.train_step(inputs, targets, auxiliary_vars)
@@ -454,6 +481,20 @@ class Model(object):
             self.train_state.step += 1
             if self.train_state.step % display_every == 0 or i + 1 == epochs:
                 self._test()
+
+            if self.train_state.step % 1 == 0:
+                feed_dict = self.net.feed_dict(self.train_state.X_train,
+                    self.train_state.y_train,
+                    self.train_state.train_aux_vars,)
+                feed_dict.update({self.adaptive_constant_bcs_tf: self.adaptive_constant_bcs_val})
+                
+                # adaptive_constant_bcs_val = self.sess.run(self.adaptive_constant_bcs)
+                adaptive_constant_bcs_val = self.sess.run(self.adaptive_constant_bcs, feed_dict)
+
+                self.adaptive_constant_bcs_val = adaptive_constant_bcs_val * \
+                    (1.0 - self.beta) + self.beta * self.adaptive_constant_bcs_val
+
+                print(self.adaptive_constant_bcs_val)
 
             self.callbacks.on_batch_end()
             self.callbacks.on_epoch_end()

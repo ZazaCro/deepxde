@@ -160,6 +160,7 @@ class Model(object):
         self.adaptive_constant_bcs = tf.reduce_max(tf.stack(adpative_constant_bcs_list))
 
         losses = losses_eq + losses_bcs
+        # losses = losses_all
         # Weighted losses
         if loss_weights is not None:
             losses *= loss_weights
@@ -482,19 +483,18 @@ class Model(object):
             if self.train_state.step % display_every == 0 or i + 1 == epochs:
                 self._test()
 
-            if self.train_state.step % 1 == 0:
-                feed_dict = self.net.feed_dict(self.train_state.X_train,
+            if self.train_state.step % 10 == 0:
+                feed_dict = self.net.feed_dict(False, self.train_state.X_train,
                     self.train_state.y_train,
                     self.train_state.train_aux_vars,)
                 feed_dict.update({self.adaptive_constant_bcs_tf: self.adaptive_constant_bcs_val})
                 
-                # adaptive_constant_bcs_val = self.sess.run(self.adaptive_constant_bcs)
                 adaptive_constant_bcs_val = self.sess.run(self.adaptive_constant_bcs, feed_dict)
 
                 self.adaptive_constant_bcs_val = adaptive_constant_bcs_val * \
                     (1.0 - self.beta) + self.beta * self.adaptive_constant_bcs_val
 
-                print(self.adaptive_constant_bcs_val)
+                print(adaptive_constant_bcs_val)
 
             self.callbacks.on_batch_end()
             self.callbacks.on_epoch_end()

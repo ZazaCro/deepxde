@@ -159,7 +159,7 @@ class Model(object):
                 tf.reduce_max(tf.abs(grad_res[i])) / tf.reduce_mean(tf.abs(grad_bcs[i])))
         self.adaptive_constant_bcs = tf.reduce_max(tf.stack(adpative_constant_bcs_list))
 
-        losses = losses_eq + losses_bcs
+        losses = tf.concat([losses_eq, losses_bcs], 0)
         # losses = losses_all
         # Weighted losses
         if loss_weights is not None:

@@ -5,7 +5,7 @@ import numpy as np
 
 from . import config
 from . import gradients as grad
-from .backend import backend_name
+from .backend import backend_name, tf
 from .utils import list_to_str, save_animation
 
 
@@ -483,3 +483,67 @@ class PDEResidualResampler(Callback):
             raise ValueError(
                 "`num_bcs` changed! Please update the loss function by `model.compile`."
             )
+
+
+class AdaptiveLossWeights(Callback):
+    """Get the variable values.
+
+    Args:
+        var_list: A `TensorFlow Variable <https://www.tensorflow.org/api_docs/python/tf/Variable>`_
+            or a list of TensorFlow Variable.
+        period (int): Interval (number of epochs) between checking values.
+        filename (string): Output the values to the file `filename`.
+            The file is kept open to allow instances to be re-used.
+            If ``None``, output to the screen.
+        precision (int): The precision of variables to display.
+    """
+
+    def __init__(self, method, beta=0.9, period=1, filename=None, precision=2):
+        super(AdaptiveLossWeights, self).__init__()
+        self.method = method
+        self.beta = beta
+        self.period = period
+        self.precision = precision
+
+    #    self.file = sys.stdout if filename is None else open(filename, "w", buffering=1)
+        self.adaptive_constant = 1
+
+    #def on_train_begin(self):
+    #    if self.model.train_state.epoch % 10 == 0 or self.model.train_state.epoch == 1:
+    #        print(
+    #            self.model.train_state.epoch,
+    #            list_to_str(self.adaptive_constant, precision=self.precision),
+    #            file=self.file,
+    #        )
+    #    self.file.flush()
+
+    def on_epoch_end(self):
+        if self.model.train_state.epoch % 10 == 0 or self.model.train_state.epoch == 1:
+            losses_eq = self.model.losses[:-len(self.model.data.bcs)]
+            losses_bcs = self.model.losses[-len(self.model.data.bcs):] * self.adaptive_constant
+            grad_res = []
+            grad_bcs = []
+            weights = tf.trainable_variables()[::2]
+            for i in range(len(self.model.net.layer_size) - 1):
+                grad_res.append(tf.gradients(losses_eq, weights[i])[0])
+                grad_bcs.append(tf.gradients(losses_bcs, weights[i])[0])
+
+            adpative_constant_bcs_list = []
+            for i in range(len(self.model.net.layer_size) - 1):
+                adpative_constant_bcs_list.append(
+                    tf.reduce_max(tf.abs(grad_res[i])) / tf.reduce_mean(tf.abs(grad_bcs[i])))
+            adaptive_constant_bcs_tf = tf.reduce_max(tf.stack(adpative_constant_bcs_list))
+            
+            feed_dict = self.model.net.feed_dict(False, self.model.train_state.X_train,
+                self.model.train_state.y_train,
+                self.model.train_state.train_aux_vars,)
+
+            adaptive_constant_bcs_val = self.model.sess.run(adaptive_constant_bcs_tf, feed_dict=feed_dict)
+
+            self.adaptive_constant = adaptive_constant_bcs_val * \
+                (1.0 - self.beta) + self.beta * self.adaptive_constant
+
+            self.model.loss_weights = np.ones(self.model.losses.shape[0])
+            self.model.loss_weights[-len(self.model.data.bcs):] *= self.adaptive_constant
+
+            print(self.model.loss_weights)

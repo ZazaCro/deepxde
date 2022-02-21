@@ -505,26 +505,36 @@ class AdaptiveLossWeights(Callback):
         self.period = period
         self.precision = precision
 
-    #    self.file = sys.stdout if filename is None else open(filename, "w", buffering=1)
+        self.file = sys.stdout if filename is None else open(filename, "w", buffering=1)
         self.adaptive_constant = 1
 
-    #def on_train_begin(self):
-    #    if self.model.train_state.epoch % 10 == 0 or self.model.train_state.epoch == 1:
-    #        print(
-    #            self.model.train_state.epoch,
-    #            list_to_str(self.adaptive_constant, precision=self.precision),
-    #            file=self.file,
-    #        )
-    #    self.file.flush()
+    def on_train_begin(self):
+        print(
+            self.model.train_state.epoch,
+            list_to_str(self.model.loss_weights, precision=self.precision),
+            file=self.file,
+        )
+        self.file.flush()
 
     def on_epoch_end(self):
-        if self.model.train_state.epoch % 10 == 0 or self.model.train_state.epoch == 1:
+        if self.model.train_state.epoch % self.period == 0 or self.model.train_state.epoch == 1:
+            if self.method == 'gradientSumLoss':
 
-            adpative_constant_bcs_list = []
-            for i in range(len(self.model.net.layer_size) - 1):
-                adpative_constant_bcs_list.append(
-                    tf.reduce_max(tf.abs(self.model.grad_res[i])) / tf.reduce_mean(tf.abs(self.model.grad_bcs[i])))
-            adaptive_constant_bcs_tf = tf.reduce_max(tf.stack(adpative_constant_bcs_list))
+                losses_eq = tf.math.reduce_sum(self.model.outputs_losses[1][:-len(self.model.data.bcs)])
+                losses_bcs = tf.math.reduce_sum(self.model.outputs_losses[1][-len(self.model.data.bcs):])
+
+                grad_res = []
+                grad_bcs = []
+                weights = tf.trainable_variables()[::2]
+                for i in range(len(self.model.net.layer_size) - 1):
+                    grad_res.append(tf.gradients(losses_eq, weights[i])[0])
+                    grad_bcs.append(tf.gradients(losses_bcs, weights[i])[0])
+
+                adpative_constant_bcs_list = []
+                for i in range(len(self.model.net.layer_size) - 1):
+                    adpative_constant_bcs_list.append(
+                        tf.reduce_max(tf.abs(grad_res[i])) / tf.reduce_mean(tf.abs(grad_bcs[i])))
+                adaptive_constant_bcs_tf = tf.reduce_max(tf.stack(adpative_constant_bcs_list))
             
             feed_dict = self.model.net.feed_dict(False, self.model.train_state.X_train,
                 self.model.train_state.y_train,
@@ -532,10 +542,10 @@ class AdaptiveLossWeights(Callback):
 
             adaptive_constant_bcs_val = self.model.sess.run(adaptive_constant_bcs_tf, feed_dict=feed_dict)
 
-            adaptive_constant = adaptive_constant_bcs_val * \
+            self.adaptive_constant = adaptive_constant_bcs_val * \
                 (1.0 - self.beta) + self.beta * self.adaptive_constant
 
             self.model.loss_weights = np.ones(self.model.outputs_losses[1].shape[0])
-            self.model.loss_weights[-len(self.model.data.bcs):] *= adaptive_constant
-
-            print(self.model.loss_weights)
+            self.model.loss_weights[-len(self.model.data.bcs):] *= self.adaptive_constant
+            
+            self.on_train_begin()

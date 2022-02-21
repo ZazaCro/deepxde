@@ -38,11 +38,6 @@ class Model(object):
         self.losshistory = LossHistory()
         self.stop_training = False
         
-        #self.losses = None
-        #self.losses_gradients = np.array(1)
-        self.grad_res = []
-        self.grad_bcs = []     
-
         # Backend-dependent attributes
         self.opt = None
         # Tensor or callable
@@ -54,10 +49,9 @@ class Model(object):
             self.saver = None
         elif backend_name == "jax":
             self.opt_state = None  # TODO: to be removed to opt module
-        
-        # For computation of dynamic weights
-        # self.adaptive_constant_bcs_val = np.array(1.0)
-        # self.adaptive_constant_bcs_tf = tf.placeholder(tf.float32, shape=self.adaptive_constant_bcs_val.shape)
+
+        self.loss_weights = []
+
 
     @utils.timing
     def compile(
@@ -145,14 +139,6 @@ class Model(object):
             losses.append(tf.losses.get_regularization_loss())
 
         losses = tf.convert_to_tensor(losses)
-
-        losses_eq = tf.math.reduce_sum(losses[:-len(self.data.bcs)])
-        losses_bcs = tf.math.reduce_sum(losses[-len(self.data.bcs):])
-
-        weights = tf.trainable_variables()[::2]
-        for i in range(len(self.net.layer_size) - 1):
-            self.grad_res.append(tf.gradients(losses_eq, weights[i])[0])
-            self.grad_bcs.append(tf.gradients(losses_bcs, weights[i])[0])
 
         self.loss_weights = loss_weights
         # Weighted losses

@@ -486,13 +486,15 @@ class PDEResidualResampler(Callback):
 
 
 class AdaptiveLossWeights(Callback):
-    """Get the variable values.
+    """Caclulate adaptive loss weights.
 
     Args:
-        var_list: A `TensorFlow Variable <https://www.tensorflow.org/api_docs/python/tf/Variable>`_
-            or a list of TensorFlow Variable.
-        period (int): Interval (number of epochs) between checking values.
-        filename (string): Output the values to the file `filename`.
+        method (string): Method to calculate the adaptive loss weights. Mehod 'gradientSumLoss'
+            calculate loss gradients from sum of equations losses and sum of BC and IC
+            losses.
+        beta (float): a hyper-parameter used to calculate final adaptive constant.
+        period (int): Interval (number of epochs) between recalculating the weights.
+        filename (string): Output the weights to the file `filename`.
             The file is kept open to allow instances to be re-used.
             If ``None``, output to the screen.
         precision (int): The precision of variables to display.

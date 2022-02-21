@@ -37,7 +37,11 @@ class Model(object):
         self.train_state = TrainState()
         self.losshistory = LossHistory()
         self.stop_training = False
-        self.losses = None
+        
+        #self.losses = None
+        #self.losses_gradients = np.array(1)
+        self.grad_res = []
+        self.grad_bcs = []     
 
         # Backend-dependent attributes
         self.opt = None
@@ -133,26 +137,33 @@ class Model(object):
             self.saver = tf.train.Saver(max_to_keep=None)
 
         # Data losses
-        self.losses = self.data.losses(self.net.targets, self.net.outputs, loss_fn, self)
-        if not isinstance(self.losses, list):
-            self.losses = [self.losses]
+        losses = self.data.losses(self.net.targets, self.net.outputs, loss_fn, self)
+        if not isinstance(losses, list):
+            losses = [losses]
         # Regularization loss
         if self.net.regularizer is not None:
-            self.losses.append(tf.losses.get_regularization_loss())
+            losses.append(tf.losses.get_regularization_loss())
 
-        # losses[-len(self.data.bcs):] *= self.adaptive_constant_bcs_tf
-        self.losses = tf.convert_to_tensor(self.losses)
-        
+        losses = tf.convert_to_tensor(losses)
+
+        losses_eq = tf.math.reduce_sum(losses[:-len(self.data.bcs)])
+        losses_bcs = tf.math.reduce_sum(losses[-len(self.data.bcs):])
+
+        weights = tf.trainable_variables()[::2]
+        for i in range(len(self.net.layer_size) - 1):
+            self.grad_res.append(tf.gradients(losses_eq, weights[i])[0])
+            self.grad_bcs.append(tf.gradients(losses_bcs, weights[i])[0])
+
         self.loss_weights = loss_weights
         # Weighted losses
         if self.loss_weights is not None:
-            self.losses *= self.loss_weights
+            losses *= self.loss_weights
             self.losshistory.set_loss_weights(self.loss_weights)
-        total_loss = tf.math.reduce_sum(self.losses)
+        total_loss = tf.math.reduce_sum(losses)
 
         # Tensors
         self.outputs = self.net.outputs
-        self.outputs_losses = [self.net.outputs, self.losses]
+        self.outputs_losses = [self.net.outputs, losses]
         self.train_step = optimizers.get(
             total_loss, self.opt_name, learning_rate=lr, decay=decay
         )

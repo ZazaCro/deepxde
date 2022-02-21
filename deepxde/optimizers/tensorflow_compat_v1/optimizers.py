@@ -33,10 +33,7 @@ def get(loss, optimizer, learning_rate=None, decay=None):
     lr, global_step = _get_learningrate(learning_rate, decay)
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):
-        opt = _get_optimizer(optimizer, lr)
-        gradients = opt.compute_gradients(loss)
-        # train_op = _get_optimizer(optimizer, lr).minimize(loss, global_step=global_step)
-        train_op = opt.apply_gradients(gradients, global_step=global_step)
+        train_op = _get_optimizer(optimizer, lr).minimize(loss, global_step=global_step)
     return train_op
 
 

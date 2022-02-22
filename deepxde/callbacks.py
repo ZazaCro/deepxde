@@ -513,7 +513,7 @@ class AdaptiveLossWeights(Callback):
     def on_train_begin(self):
         print(
             self.model.train_state.epoch,
-            list_to_str(self.model.loss_weights, precision=self.precision),
+            list_to_str(self.model.adaptive_constant_bcs_val, precision=self.precision),
             file=self.file,
         )
         self.file.flush()
@@ -522,42 +522,40 @@ class AdaptiveLossWeights(Callback):
         if self.model.train_state.epoch % self.period == 0 or self.model.train_state.epoch == 1:
             
 
-            losses_eq = tf.math.reduce_sum(self.model.outputs_losses[1][:-len(self.model.data.bcs)])
-            losses_bcs = tf.math.reduce_sum(self.model.outputs_losses[1][-len(self.model.data.bcs):])
+            #losses_eq = tf.math.reduce_sum(self.model.outputs_losses[1][:-len(self.model.data.bcs)])
+            #losses_bcs = tf.math.reduce_sum(self.model.outputs_losses[1][-len(self.model.data.bcs):])
 
-            grad_res = []
-            grad_bcs = []
-            weights = tf.trainable_variables()[::2]
-            for i in range(len(self.model.net.layer_size) - 1):
-                grad_res.append(tf.gradients(losses_eq, weights[i])[0])
-                grad_bcs.append(tf.gradients(losses_bcs, weights[i])[0])
+            #grad_res = []
+            #grad_bcs = []
+            #weights = tf.trainable_variables()[::2]
+            #for i in range(len(self.model.net.layer_size) - 1):
+            #    grad_res.append(tf.gradients(losses_eq, weights[i])[0])
+            #    grad_bcs.append(tf.gradients(losses_bcs, weights[i])[0])
 
-            adpative_constant_bcs_list = []
-            if self.method == 'gradientSumLoss':  
-                for i in range(len(self.model.net.layer_size) - 1):
-                    adpative_constant_bcs_list.append(
-                        tf.reduce_max(tf.abs(grad_res[i])) / tf.reduce_mean(tf.abs(grad_bcs[i])))
+            #adpative_constant_bcs_list = []
+            #if self.method == 'gradientSumLoss':  
+            #    for i in range(len(self.model.net.layer_size) - 1):
+            #        adpative_constant_bcs_list.append(
+            #            tf.reduce_max(tf.abs(grad_res[i])) / tf.reduce_mean(tf.abs(grad_bcs[i])))
 
-            elif self.method == 'meanRatios':
-                for i in range(len(self.model.net.layer_size) - 1):
-                    adpative_constant_bcs_list.append(
-                        tf.reduce_mean(tf.abs(grad_res[i])) / tf.reduce_mean(tf.abs(grad_bcs[i])))
+            #elif self.method == 'meanRatios':
+            #    for i in range(len(self.model.net.layer_size) - 1):
+            #        adpative_constant_bcs_list.append(
+            #            tf.reduce_mean(tf.abs(grad_res[i])) / tf.reduce_mean(tf.abs(grad_bcs[i])))
 
-            else:
-                sys.exit('Adaptive loss weight mehod: \'' + self.method + '\' is not available')
+            #else:
+            #    sys.exit('Adaptive loss weight mehod: \'' + self.method + '\' is not available')
 
-            adaptive_constant_bcs_tf = tf.reduce_max(tf.stack(adpative_constant_bcs_list))
+            #adaptive_constant_bcs_tf = tf.reduce_max(tf.stack(adpative_constant_bcs_list))
             
             feed_dict = self.model.net.feed_dict(False, self.model.train_state.X_train,
                 self.model.train_state.y_train,
                 self.model.train_state.train_aux_vars,)
+            feed_dict.update({self.adaptive_constant_bcs_tf: self.model.adaptive_constant_bcs_val})
 
-            adaptive_constant_bcs_val = self.model.sess.run(adaptive_constant_bcs_tf, feed_dict=feed_dict)
+            adaptive_constant_bcs_val = self.sess.run(self.model.adaptive_constant_bcs, feed_dict)
 
-            self.adaptive_constant = adaptive_constant_bcs_val * \
-                (1.0 - self.beta) + self.beta * self.adaptive_constant
-
-            self.model.loss_weights = np.ones(self.model.outputs_losses[1].shape[0])
-            self.model.loss_weights[-len(self.model.data.bcs):] *= self.adaptive_constant
-            
+            self.model.adaptive_constant_bcs_val = adaptive_constant_bcs_val * \
+                (1.0 - self.beta) + self.beta * self.model.adaptive_constant_bcs_val
+           
             self.on_train_begin()

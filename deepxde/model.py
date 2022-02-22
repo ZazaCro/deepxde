@@ -50,8 +50,9 @@ class Model(object):
         elif backend_name == "jax":
             self.opt_state = None  # TODO: to be removed to opt module
 
-        self.loss_weights = []
-
+        self.beta = 0.9
+        self.adaptive_constant_bcs_val = np.array(1.0)
+        self.adaptive_constant_bcs_tf = tf.placeholder(tf.float32, shape=self.adaptive_constant_bcs_val.shape)
 
     @utils.timing
     def compile(
@@ -140,11 +141,30 @@ class Model(object):
 
         losses = tf.convert_to_tensor(losses)
 
-        self.loss_weights = loss_weights
+        # Calculate adaptive weights
+        losses_eq = tf.math.reduce_sum(losses[:-len(self.data.bcs)])
+        losses_bcs = tf.math.reduce_sum(losses[-len(self.data.bcs):]) * self.adaptive_constant_bcs_tf
+
+        losses = losses_eq + losses_bcs
+
+        grad_res = []
+        grad_bcs = []
+        weights = tf.trainable_variables()[::2]
+        for i in range(len(self.net.layer_size) - 1):
+            grad_res.append(tf.gradients(losses_eq, weights[i])[0])
+            grad_bcs.append(tf.gradients(losses_bcs, weights[i])[0])
+
+        adpative_constant_bcs_list = []
+        for i in range(len(self.net.layer_size) - 1):
+            adpative_constant_bcs_list.append(
+                tf.reduce_max(tf.abs(grad_res[i])) / tf.reduce_mean(tf.abs(grad_bcs[i]))) 
+        self.adaptive_constant_bcs = tf.reduce_max(tf.stack(adpative_constant_bcs_list))
+
+
         # Weighted losses
-        if self.loss_weights is not None:
-            losses *= self.loss_weights
-            self.losshistory.set_loss_weights(self.loss_weights)
+        if loss_weights is not None:
+            losses *= loss_weights
+            self.losshistory.set_loss_weights(loss_weights)
         total_loss = tf.math.reduce_sum(losses)
 
         # Tensors
@@ -344,6 +364,7 @@ class Model(object):
     def _outputs_losses(self, training, inputs, targets, auxiliary_vars):
         if backend_name == "tensorflow.compat.v1":
             feed_dict = self.net.feed_dict(training, inputs, targets, auxiliary_vars)
+            feed_dict.update({self.adaptive_constant_bcs_tf: self.adaptive_constant_bcs_val})
             return self.sess.run(self.outputs_losses, feed_dict=feed_dict)
         if backend_name == "tensorflow":
             outs = self.outputs_losses(training, inputs, targets, auxiliary_vars)

@@ -520,23 +520,33 @@ class AdaptiveLossWeights(Callback):
 
     def on_epoch_end(self):
         if self.model.train_state.epoch % self.period == 0 or self.model.train_state.epoch == 1:
-            if self.method == 'gradientSumLoss':
+            
 
-                losses_eq = tf.math.reduce_sum(self.model.outputs_losses[1][:-len(self.model.data.bcs)])
-                losses_bcs = tf.math.reduce_sum(self.model.outputs_losses[1][-len(self.model.data.bcs):])
+            losses_eq = tf.math.reduce_sum(self.model.outputs_losses[1][:-len(self.model.data.bcs)])
+            losses_bcs = tf.math.reduce_sum(self.model.outputs_losses[1][-len(self.model.data.bcs):])
 
-                grad_res = []
-                grad_bcs = []
-                weights = tf.trainable_variables()[::2]
-                for i in range(len(self.model.net.layer_size) - 1):
-                    grad_res.append(tf.gradients(losses_eq, weights[i])[0])
-                    grad_bcs.append(tf.gradients(losses_bcs, weights[i])[0])
+            grad_res = []
+            grad_bcs = []
+            weights = tf.trainable_variables()[::2]
+            for i in range(len(self.model.net.layer_size) - 1):
+                grad_res.append(tf.gradients(losses_eq, weights[i])[0])
+                grad_bcs.append(tf.gradients(losses_bcs, weights[i])[0])
 
-                adpative_constant_bcs_list = []
+            adpative_constant_bcs_list = []
+            if self.method == 'gradientSumLoss':  
                 for i in range(len(self.model.net.layer_size) - 1):
                     adpative_constant_bcs_list.append(
                         tf.reduce_max(tf.abs(grad_res[i])) / tf.reduce_mean(tf.abs(grad_bcs[i])))
-                adaptive_constant_bcs_tf = tf.reduce_max(tf.stack(adpative_constant_bcs_list))
+
+            elif self.method == 'meanRatios':
+                for i in range(len(self.model.net.layer_size) - 1):
+                    adpative_constant_bcs_list.append(
+                        tf.reduce_mean(tf.abs(grad_res[i])) / tf.reduce_mean(tf.abs(grad_bcs[i])))
+
+            else:
+                sys.exit('Adaptive loss weight mehod: \'' + self.method + '\' is not available')
+
+            adaptive_constant_bcs_tf = tf.reduce_max(tf.stack(adpative_constant_bcs_list))
             
             feed_dict = self.model.net.feed_dict(False, self.model.train_state.X_train,
                 self.model.train_state.y_train,

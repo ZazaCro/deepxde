@@ -508,12 +508,12 @@ class AdaptiveLossWeights(Callback):
         self.precision = precision
 
         self.file = sys.stdout if filename is None else open(filename, "w", buffering=1)
-        self.adaptive_constant = 1
+        self.adaptive_constant_bcs_val = 1
 
     def on_train_begin(self):
         print(
             self.model.train_state.epoch,
-            list_to_str(self.model.adaptive_constant_bcs_val, precision=self.precision),
+            list_to_str(self.adaptive_constant_bcs_val, precision=self.precision),
             file=self.file,
         )
         self.file.flush()
@@ -551,11 +551,11 @@ class AdaptiveLossWeights(Callback):
             feed_dict = self.model.net.feed_dict(False, self.model.train_state.X_train,
                 self.model.train_state.y_train,
                 self.model.train_state.train_aux_vars,)
-            feed_dict.update({self.adaptive_constant_bcs_tf: self.model.adaptive_constant_bcs_val})
+            feed_dict.update({self.model.adaptive_constant_bcs_tf: self.model.adaptive_constant_bcs_val})
 
-            adaptive_constant_bcs_val = self.sess.run(self.model.adaptive_constant_bcs, feed_dict)
+            self.adaptive_constant_bcs_val = self.model.sess.run(self.model.adaptive_constant_bcs, feed_dict)
 
-            self.model.adaptive_constant_bcs_val = adaptive_constant_bcs_val * \
+            self.model.adaptive_constant_bcs_val = self.adaptive_constant_bcs_val * \
                 (1.0 - self.beta) + self.beta * self.model.adaptive_constant_bcs_val
            
             self.on_train_begin()

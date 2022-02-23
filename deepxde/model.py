@@ -142,10 +142,14 @@ class Model(object):
         losses = tf.convert_to_tensor(losses)
 
         # Calculate adaptive weights
-        losses_eq = tf.math.reduce_sum(losses[:-len(self.data.bcs)])
-        losses_bcs = tf.math.reduce_sum(losses[-len(self.data.bcs):]) * self.adaptive_constant_bcs_tf
+        losses_eq = losses[:-len(self.data.bcs)]
+        losses_bcs = losses[-len(self.data.bcs):] * self.adaptive_constant_bcs_tf
 
-        losses = losses_eq + losses_bcs
+        losses = tf.concat([losses_eq, losses_bcs], 0)
+
+        losses_eq = tf.math.reduce_sum(losses_eq)
+        losses_bcs = tf.math.reduce_sum(losses_bcs)
+
 
         grad_res = []
         grad_bcs = []
@@ -381,6 +385,7 @@ class Model(object):
     def _train_step(self, inputs, targets, auxiliary_vars):
         if backend_name == "tensorflow.compat.v1":
             feed_dict = self.net.feed_dict(True, inputs, targets, auxiliary_vars)
+            feed_dict.update({self.adaptive_constant_bcs_tf: self.adaptive_constant_bcs_val})
             self.sess.run(self.train_step, feed_dict=feed_dict)
         elif backend_name == "tensorflow":
             self.train_step(inputs, targets, auxiliary_vars)

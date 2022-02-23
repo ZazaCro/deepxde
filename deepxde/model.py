@@ -50,7 +50,6 @@ class Model(object):
         elif backend_name == "jax":
             self.opt_state = None  # TODO: to be removed to opt module
 
-        self.beta = 0.9
         self.adaptive_constant_bcs_val = np.array(1.0)
         self.adaptive_constant_bcs_tf = tf.placeholder(tf.float32, shape=self.adaptive_constant_bcs_val.shape)
 

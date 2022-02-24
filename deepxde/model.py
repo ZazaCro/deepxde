@@ -51,7 +51,7 @@ class Model(object):
             self.opt_state = None  # TODO: to be removed to opt module
 
         self.adaptive_constant_bcs_val = np.array(1.0)
-        self.adaptive_constant_bcs_tf = tf.placeholder(tf.float32, shape=self.adaptive_constant_bcs_val.shape)
+        self.adaptive_constant_bcs_tf = tf.placeholder(tf.float64, shape=self.adaptive_constant_bcs_val.shape)
 
     @utils.timing
     def compile(
